@@ -2,6 +2,14 @@ import streamlit as st
 import plotly.express as px
 import pandas as pd
 from pathlib import Path
+import gspread
+from google.oauth2.service_account import Credentials
+from datetime import datetime
+import uuid
+
+
+SHEET_ID = st.secrets["GSHEET_ID"]
+TAB_NAME = "schedule"
 
 DAY_TO_NUM = {"א'": 0, "ב'": 1, "ג'": 2, "ד'": 3, "ה'": 4, "ו'": 5, "שבת": 6}
 
@@ -15,6 +23,60 @@ COLOR_MAP = {
 FILE = Path("schedule.csv")
 PEOPLE = ["אבא", "אמא", "אילה", "מעיין"]
 DAYS = ["א'", "ב'", "ג'", "ד'", "ה'", "ו'", "שבת"]
+
+
+def gs_client():
+    scopes = ["https://www.googleapis.com/auth/spreadsheets",
+              "https://www.googleapis.com/auth/drive"]
+    creds = Credentials.from_service_account_info(
+        st.secrets["gcp_service_account"],
+        scopes=scopes
+    )
+    return gspread.authorize(creds)
+
+def load_data_gsheet() -> pd.DataFrame:
+    gc = gs_client()
+    ws = gc.open_by_key(SHEET_ID).worksheet(TAB_NAME)
+    rows = ws.get_all_records()  # list of dicts
+    df = pd.DataFrame(rows)
+    if df.empty:
+        df = pd.DataFrame(columns=["id","יום","התחלה","סיום","מי","פעילות"])
+    return df
+
+def append_row_gsheet(row: dict):
+    gc = gs_client()
+    ws = gc.open_by_key(SHEET_ID).worksheet(TAB_NAME)
+    ws.append_row([row["id"], row["יום"], row["התחלה"], row["סיום"], row["מי"], row["פעילות"]])
+
+def update_row_gsheet(row_id: str, new_row: dict):
+    gc = gs_client()
+    ws = gc.open_by_key(SHEET_ID).worksheet(TAB_NAME)
+    data = ws.get_all_values()
+    # data[0] headers
+    for i in range(1, len(data)):
+        print(f"Checking row {i}: {data[i][0]} against {row_id}")
+        if data[i][0] == row_id:
+            # row index in gspread is 1-based
+            print(f"Found row to update at index {i}")
+            sheet_row = i + 1
+            ws.update(f"A{sheet_row}:F{sheet_row}", [[
+                new_row["id"], new_row["יום"], new_row["התחלה"], new_row["סיום"], new_row["מי"], new_row["פעילות"]
+            ]])
+            return
+    raise ValueError("Row id not found")
+
+def delete_row_gsheet(row_id: str):
+    gc = gs_client()
+    ws = gc.open_by_key(SHEET_ID).worksheet(TAB_NAME)
+    data = ws.get_all_values()
+    for i in range(1, len(data)):
+        if data[i][0] == row_id:
+            ws.delete_rows(i + 1)
+            return
+    raise ValueError("Row id not found")
+
+def new_id():
+    return uuid.uuid4().hex[:10]
 
 def to_datetime_for_week(day_str, hhmm, base_date="2026-01-05"):
     """
@@ -66,7 +128,17 @@ def save_data(df: pd.DataFrame):
 st.set_page_config(page_title="לוז משפחתי", layout="wide")
 st.title("📅 לוז משפחתי שבועי")
 
-df = load_data()
+# # call new_id 40 times and print its results to check for uniqueness
+# for _ in range(40):
+#      print(new_id())
+
+
+#df = load_data()
+df = load_data_gsheet()
+# # Force stable dtypes (prevents Arrow serialization issues)
+# for c in ["id", "יום", "התחלה", "סיום", "מי", "פעילות"]:
+#     if c in df.columns:
+#         df[c] = df[c].astype("string").fillna("").str.strip()
 
 #region daily view 
 st.subheader("📅 תצוגה יומית")
@@ -181,20 +253,17 @@ with st.expander("➕ הוספת פעילות", expanded=True):
             st.error("שעת סיום חייבת להיות אחרי שעת התחלה.")
         else:
             new_row = {
+                "id": new_id(),
                 "יום": day,
                 "התחלה": start.strftime("%H:%M"),
                 "סיום": end.strftime("%H:%M"),
                 "מי": person,
                 "פעילות": activity.strip()
             }
-            df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
-            save_data(df)
+            append_row_gsheet(new_row)            
             st.success("נוסף!")
 
 st.subheader("📋 הפעילויות")
-# st.dataframe(df, use_container_width=True)
-#styled_df = df.style.map(highlight_person, subset=["מי"])
-#st.dataframe(styled_df, use_container_width=True)
 def highlight_person_column(col):
     return [
         f"background-color: {COLOR_MAP.get(str(val).strip(), 'white')}; "
@@ -211,17 +280,24 @@ st.subheader("✏️ עריכה / ❌ מחיקה")
 if len(df) == 0:
     st.info("אין עדיין פעילויות. תוסיפו אחת למעלה 🙂")
 else:
-    idx = st.number_input("מספר שורה לעריכה/מחיקה (Index)", min_value=0, max_value=len(df)-1, step=1)
+    selected_id = st.selectbox("בחר פעילות לעריכה", df["id"].tolist())
+    # find index of selected_id
+    selected_idx = df[df["id"] == selected_id].index[0] if selected_id in df["id"].values else None
+    if selected_id in df["id"].values:
+        row = df[df["id"] == selected_id].iloc[0]
+    else:
+        st.error("הזדהות לא נמצאה. אנא בחר מזהה תקין.")
+        st.stop()
 
     colA, colB = st.columns(2)
 
     with colA:
         st.write("עריכת שורה:")
-        e_day = st.selectbox("יום (עריכה)", DAYS, index=DAYS.index(df.loc[idx, "יום"]))
-        e_start = st.time_input("התחלה (עריכה)", value=pd.to_datetime(df.loc[idx, "התחלה"]).time())
-        e_end = st.time_input("סיום (עריכה)", value=pd.to_datetime(df.loc[idx, "סיום"]).time())
-        e_person = st.selectbox("מי (עריכה)", PEOPLE, index=PEOPLE.index(df.loc[idx, "מי"]))
-        e_activity = st.text_input("פעילות (עריכה)", value=str(df.loc[idx, "פעילות"]))
+        e_day = st.selectbox("יום (עריכה)", DAYS, index=DAYS.index(df.loc[selected_idx, "יום"]))
+        e_start = st.time_input("התחלה (עריכה)", value=pd.to_datetime(df.loc[selected_idx, "התחלה"]).time())
+        e_end = st.time_input("סיום (עריכה)", value=pd.to_datetime(df.loc[selected_idx, "סיום"]).time())
+        e_person = st.selectbox("מי (עריכה)", PEOPLE, index=PEOPLE.index(df.loc[selected_idx, "מי"]))
+        e_activity = st.text_input("פעילות (עריכה)", value=str(df.loc[selected_idx, "פעילות"]))
 
         if st.button("שמור עריכה"):
             if e_activity.strip() == "":
@@ -229,19 +305,27 @@ else:
             elif e_end <= e_start:
                 st.error("שעת סיום חייבת להיות אחרי שעת התחלה.")
             else:
-                df.loc[idx, "יום"] = e_day
-                df.loc[idx, "התחלה"] = e_start.strftime("%H:%M")
-                df.loc[idx, "סיום"] = e_end.strftime("%H:%M")
-                df.loc[idx, "מי"] = e_person
-                df.loc[idx, "פעילות"] = e_activity.strip()
-                save_data(df)
+                edited_row = {
+                 "id": selected_id,
+                 "יום": e_day,
+                 "התחלה": e_start.strftime("%H:%M"),
+                 "סיום": e_end.strftime("%H:%M"),
+                 "מי": e_person.strip(),
+                 "פעילות": e_activity.strip()
+                }
+                update_row_gsheet(selected_id, edited_row)
+                #df = load_data_gsheet()
                 st.success("עודכן!")
+                st.rerun()
+
 
     with colB:
         st.write("מחיקה:")
-        st.warning(f"אתה עומד למחוק: {df.loc[idx, 'יום']} {df.loc[idx, 'התחלה']}-{df.loc[idx, 'סיום']} | {df.loc[idx, 'מי']} | {df.loc[idx, 'פעילות']}")
+        st.warning(f"אתה עומד למחוק: {df.loc[selected_idx, 'יום']} {df.loc[selected_idx, 'התחלה']}-{df.loc[selected_idx, 'סיום']} | {df.loc[selected_idx, 'מי']} | {df.loc[selected_idx, 'פעילות']}")
         if st.button("מחק שורה"):
-            df = df.drop(index=idx).reset_index(drop=True)
-            save_data(df)
-            st.success("נמחק!")
+            delete_row_gsheet(selected_id)
+            st.success("נמחק!") 
+            st.rerun()
+            # df = load_data_gsheet()
             
+
