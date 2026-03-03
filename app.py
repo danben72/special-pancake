@@ -1,6 +1,9 @@
 import streamlit as st
+import plotly.express as px
 import pandas as pd
 from pathlib import Path
+
+DAY_TO_NUM = {"א'": 0, "ב'": 1, "ג'": 2, "ד'": 3, "ה'": 4, "ו'": 5, "שבת": 6}
 
 COLOR_MAP = {
     "אבא": "#E74C3C",     # אדום
@@ -12,6 +15,39 @@ COLOR_MAP = {
 FILE = Path("schedule.csv")
 PEOPLE = ["אבא", "אמא", "אילה", "מעיין"]
 DAYS = ["א'", "ב'", "ג'", "ד'", "ה'", "ו'", "שבת"]
+
+def to_datetime_for_week(day_str, hhmm, base_date="2026-01-05"):
+    """
+    base_date = יום שני כלשהו. זה רק כדי לבנות תאריכים "פיקטיביים" לאותו שבוע.
+    2026-01-05 הוא יום שני.
+    """
+    base = pd.Timestamp(base_date)  # Monday
+    day_offset = DAY_TO_NUM.get(day_str, 0)
+    h, m = map(int, str(hhmm).split(":"))
+    return base + pd.Timedelta(days=day_offset) + pd.Timedelta(hours=h, minutes=m)
+
+def build_calendar_df(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return df.copy()
+
+    cal = df.copy()
+    # ניקוי קטן
+    cal["מי"] = cal["מי"].astype(str).str.strip()
+    cal["יום"] = cal["יום"].astype(str).str.strip()
+
+    cal["start_dt"] = cal.apply(lambda r: to_datetime_for_week(r["יום"], r["התחלה"]), axis=1)
+    cal["end_dt"]   = cal.apply(lambda r: to_datetime_for_week(r["יום"], r["סיום"]), axis=1)
+
+    # תווית יפה לבלוק
+    cal["label"] = cal["פעילות"].astype(str) + " — " + cal["מי"].astype(str)
+
+    # סדר ימים יפה (כדי שה-Y יהיה א'..שבת)
+    cal["day_num"] = cal["יום"].map(DAY_TO_NUM).fillna(0).astype(int)
+    cal = cal.sort_values(["day_num", "start_dt"]).drop(columns=["day_num"])
+
+    return cal
+
+
 
 def highlight_person(val):
     color = COLOR_MAP.get(val, "white")
@@ -32,6 +68,43 @@ st.title("📅 לוז משפחתי שבועי")
 
 df = load_data()
 
+cal = build_calendar_df(df)
+
+st.subheader("🗓️ לוח שבועי ויזואלי")
+
+if cal.empty:
+    st.info("אין פעילויות עדיין.")
+else:
+    fig = px.timeline(
+        cal,
+        x_start="start_dt",
+        x_end="end_dt",
+        y="יום",
+        color="מי",
+        text="פעילות",
+        hover_data={"מי": True, "פעילות": True, "start_dt": True, "end_dt": True},
+        color_discrete_map=COLOR_MAP
+    )
+
+    # להפוך את ציר הימים ל"מלמעלה למטה" בצורה יפה
+    fig.update_yaxes(autorange="reversed", title=None)
+
+    # פורמט זמנים בציר X
+    fig.update_xaxes(
+        tickformat="%H:%M",
+        title=None
+    )
+
+    # טקסט בתוך הבלוקים
+    fig.update_traces(textposition="inside", insidetextanchor="middle")
+
+    fig.update_layout(
+        height=550,
+        margin=dict(l=20, r=20, t=10, b=20),
+        legend_title_text="מי"
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
 with st.expander("➕ הוספת פעילות", expanded=True):
     c1, c2, c3, c4, c5 = st.columns([1, 1, 1, 1, 3])
     day = c1.selectbox("יום", DAYS)
