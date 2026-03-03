@@ -3,10 +3,10 @@ import pandas as pd
 from pathlib import Path
 
 COLOR_MAP = {
-    "אבא": "#FFD966",     # צהוב
-    "אמא": "#F4B6C2",     # ורוד
-    "אילה": "#9FD3FF",    # כחול
-    "מעיין": "#B6E7A7"    # ירוק
+    "אבא": "#E74C3C",     # אדום
+    "אמא": "#3498DB",     # כחול
+    "אילה": "#9B59B6",    # סגול
+    "מעיין": "#E67E22"    # כתום
 }
 
 FILE = Path("schedule.csv")
