@@ -68,6 +68,58 @@ st.title("📅 לוז משפחתי שבועי")
 
 df = load_data()
 
+#region daily view 
+st.subheader("📅 תצוגה יומית")
+
+selected_day = st.selectbox("בחר יום", DAYS)
+
+# סינון לפי יום
+day_df = df[df["יום"].str.strip() == selected_day].copy()
+
+if day_df.empty:
+    st.info("אין פעילויות ביום הזה.")
+else:
+    base_date = pd.Timestamp("2026-01-01")
+
+    def to_datetime(hhmm):
+        h, m = map(int, str(hhmm).split(":"))
+        return base_date + pd.Timedelta(hours=h, minutes=m)
+
+    day_df["start_dt"] = day_df["התחלה"].apply(to_datetime)
+    day_df["end_dt"]   = day_df["סיום"].apply(to_datetime)
+
+    fig = px.timeline(
+        day_df,
+        x_start="start_dt",
+        x_end="end_dt",
+        y="מי",
+        color="מי",
+        text="פעילות",
+        color_discrete_map=COLOR_MAP
+    )
+
+    fig.update_yaxes(title=None)
+    fig.update_xaxes(
+        tickformat="%H:%M",
+        title=None
+    )
+
+    fig.update_traces(
+        textposition="inside",
+        insidetextanchor="middle"
+    )
+
+    fig.update_layout(
+        height=450,
+        margin=dict(l=20, r=20, t=10, b=20),
+        legend_title_text="מי"
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
+
+#endregion
+
+#region weekly calendar
 cal = build_calendar_df(df)
 
 st.subheader("🗓️ לוח שבועי ויזואלי")
@@ -105,6 +157,8 @@ else:
     )
 
     st.plotly_chart(fig, use_container_width=True)
+#endregion
+
 with st.expander("➕ הוספת פעילות", expanded=True):
     c1, c2, c3, c4, c5 = st.columns([1, 1, 1, 1, 3])
     day = c1.selectbox("יום", DAYS)
@@ -183,3 +237,4 @@ else:
             df = df.drop(index=idx).reset_index(drop=True)
             save_data(df)
             st.success("נמחק!")
+            
