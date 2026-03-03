@@ -109,55 +109,62 @@ else:
         insidetextanchor="middle"
     )
 
+    row_height = 60  # כמה פיקסלים לכל בן משפחה
     fig.update_layout(
-        height=450,
+        height=row_height * len(day_df["מי"].unique()),
         margin=dict(l=20, r=20, t=10, b=20),
         legend_title_text="מי"
     )
+
+    fig.update_xaxes(range=[
+    base_date + pd.Timedelta(hours=6),
+    base_date + pd.Timedelta(hours=23)])
+
+    fig.update_xaxes(showgrid=True, dtick=3600000)
 
     st.plotly_chart(fig, use_container_width=True)
 
 #endregion
 
-#region weekly calendar
-cal = build_calendar_df(df)
+# #region weekly calendar
+# cal = build_calendar_df(df)
 
-st.subheader("🗓️ לוח שבועי ויזואלי")
+# st.subheader("🗓️ לוח שבועי ויזואלי")
 
-if cal.empty:
-    st.info("אין פעילויות עדיין.")
-else:
-    fig = px.timeline(
-        cal,
-        x_start="start_dt",
-        x_end="end_dt",
-        y="יום",
-        color="מי",
-        text="פעילות",
-        hover_data={"מי": True, "פעילות": True, "start_dt": True, "end_dt": True},
-        color_discrete_map=COLOR_MAP
-    )
+# if cal.empty:
+#     st.info("אין פעילויות עדיין.")
+# else:
+#     fig = px.timeline(
+#         cal,
+#         x_start="start_dt",
+#         x_end="end_dt",
+#         y="יום",
+#         color="מי",
+#         text="פעילות",
+#         hover_data={"מי": True, "פעילות": True, "start_dt": True, "end_dt": True},
+#         color_discrete_map=COLOR_MAP
+#     )
 
-    # להפוך את ציר הימים ל"מלמעלה למטה" בצורה יפה
-    fig.update_yaxes(autorange="reversed", title=None)
+#     # להפוך את ציר הימים ל"מלמעלה למטה" בצורה יפה
+#     fig.update_yaxes(autorange="reversed", title=None)
 
-    # פורמט זמנים בציר X
-    fig.update_xaxes(
-        tickformat="%H:%M",
-        title=None
-    )
+#     # פורמט זמנים בציר X
+#     fig.update_xaxes(
+#         tickformat="%H:%M",
+#         title=None
+#     )
 
-    # טקסט בתוך הבלוקים
-    fig.update_traces(textposition="inside", insidetextanchor="middle")
+#     # טקסט בתוך הבלוקים
+#     fig.update_traces(textposition="inside", insidetextanchor="middle")
 
-    fig.update_layout(
-        height=550,
-        margin=dict(l=20, r=20, t=10, b=20),
-        legend_title_text="מי"
-    )
+#     fig.update_layout(
+#         height=550,
+#         margin=dict(l=20, r=20, t=10, b=20),
+#         legend_title_text="מי"
+#     )
 
-    st.plotly_chart(fig, use_container_width=True)
-#endregion
+#     st.plotly_chart(fig, use_container_width=True)
+# #endregion
 
 with st.expander("➕ הוספת פעילות", expanded=True):
     c1, c2, c3, c4, c5 = st.columns([1, 1, 1, 1, 3])
