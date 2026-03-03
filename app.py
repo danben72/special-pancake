@@ -157,9 +157,11 @@ else:
         h, m = map(int, str(hhmm).split(":"))
         return base_date + pd.Timedelta(hours=h, minutes=m)
 
+    # המרת עמודות התחלה וסיום לזמנים אמיתיים כדי ש-Plotly יוכל להציג אותם נכון
     day_df["start_dt"] = day_df["התחלה"].apply(to_datetime)
     day_df["end_dt"]   = day_df["סיום"].apply(to_datetime)
 
+    # תווית יפה לבלוק 
     fig = px.timeline(
         day_df,
         x_start="start_dt",
@@ -178,7 +180,10 @@ else:
 
     fig.update_traces(
         textposition="inside",
-        insidetextanchor="middle"
+        insidetextanchor="middle",
+        # add outline to blocks for better visibility
+        marker_line_color="black",
+        marker_line_width=0.5
     )
 
     row_height = 60  # כמה פיקסלים לכל בן משפחה
@@ -271,8 +276,14 @@ def highlight_person_column(col):
         for val in col
     ]
 
-styled_df = df.style.apply(highlight_person_column, subset=["מי"])
-st.dataframe(styled_df, use_container_width=True)
+# Apply the styling function to the "מי" column and get a styled DataFrame
+styled_df = df.drop(columns=["id"]).style.apply(highlight_person_column, subset=["מי"])
+# Display the styled DataFrame in Streamlit with container width and without the index
+st.dataframe(styled_df, use_container_width=True, hide_index=True)
+
+#########################
+# Edit / Delete section #
+#########################
 
 st.divider()
 st.subheader("✏️ עריכה / ❌ מחיקה")
@@ -280,7 +291,18 @@ st.subheader("✏️ עריכה / ❌ מחיקה")
 if len(df) == 0:
     st.info("אין עדיין פעילויות. תוסיפו אחת למעלה 🙂")
 else:
-    selected_id = st.selectbox("בחר פעילות לעריכה", df["id"].tolist())
+    # selected_id = st.selectbox("בחר פעילות לעריכה", df["id"].tolist())    
+    # Create display labels combining multiple fields
+    df["display_label"] = (
+        df["מי"] + " | " + 
+        df["יום"] + " " + 
+        df["התחלה"] +
+         "-" + df["סיום"] + " | " + 
+        df["פעילות"]
+    )
+    
+    selected_label = st.selectbox("בחר פעילות לעריכה", df["display_label"].tolist())
+    selected_id = df[df["display_label"] == selected_label]["id"].iloc[0]
     # find index of selected_id
     selected_idx = df[df["id"] == selected_id].index[0] if selected_id in df["id"].values else None
     if selected_id in df["id"].values:
@@ -321,11 +343,11 @@ else:
 
     with colB:
         st.write("מחיקה:")
-        st.warning(f"אתה עומד למחוק: {df.loc[selected_idx, 'יום']} {df.loc[selected_idx, 'התחלה']}-{df.loc[selected_idx, 'סיום']} | {df.loc[selected_idx, 'מי']} | {df.loc[selected_idx, 'פעילות']}")
+        st.warning(f"אתה עומד למחוק: {df.loc[selected_idx, 'מי']} | {df.loc[selected_idx, 'יום']} {df.loc[selected_idx, 'התחלה']}-{df.loc[selected_idx, 'סיום']} | {df.loc[selected_idx, 'פעילות']}")
         if st.button("מחק שורה"):
             delete_row_gsheet(selected_id)
             st.success("נמחק!") 
             st.rerun()
             # df = load_data_gsheet()
-            
+
 
